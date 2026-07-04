@@ -1,0 +1,68 @@
+[
+  {
+    "id": "KHQR-98327491-B",
+    "trxId": "98327491",
+    "amount": 120,
+    "currency": "USD",
+    "sender": "Sokha Lim",
+    "date": "2026-07-04 10:23:45",
+    "claimed": false,
+    "claimedBy": null,
+    "claimTime": null
+  },
+  {
+    "id": "KHQR-77263541-D",
+    "trxId": "77263541",
+    "amount": 15.5,
+    "currency": "USD",
+    "sender": "Dara Sam",
+    "date": "2026-07-04 11:45:12",
+    "claimed": false,
+    "claimedBy": null,
+    "claimTime": null
+  },
+  {
+    "id": "KHQR-01928374-P",
+    "trxId": "01928374",
+    "amount": 450,
+    "currency": "USD",
+    "sender": "Nita Vanh",
+    "date": "2026-07-04 12:15:30",
+    "claimed": false,
+    "claimedBy": null,
+    "claimTime": null
+  },
+  {
+    "id": "KHQR-11223344-K",
+    "trxId": "11223344",
+    "amount": 1200,
+    "currency": "USD",
+    "sender": "Vannak Chen",
+    "date": "2026-07-04 12:55:00",
+    "claimed": false,
+    "claimedBy": null,
+    "claimTime": null
+  },
+  {
+    "id": "KHQR-88889999-R",
+    "trxId": "88889999",
+    "amount": 35,
+    "currency": "USD",
+    "sender": "Srey Mao",
+    "date": "2026-07-04 13:02:10",
+    "claimed": false,
+    "claimedBy": null,
+    "claimTime": null
+  },
+  {
+    "id": "100FT38197949889",
+    "trxId": "56868300340",
+    "amount": 12623.52,
+    "currency": "KHR",
+    "sender": "LY LAISRUN",
+    "date": "2026-07-04 06:46:00",
+    "claimed": true,
+    "claimedBy": "Telegram Bot (@daaarriddhqtc)",
+    "claimTime": "2026-07-04 06:58:17"
+  }
+]

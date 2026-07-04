@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BakongRecon - Anti-Fraud Tracking Dashboard</title>
+  <!-- Google Fonts for High-Tech / Security Aesthetic -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Inter:wght@300;400;500;600;700;800&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- High-Security Top Status Bar -->
+  <header class="status-bar">
+    <div class="logo-area">
+      <div class="shield-icon">🛡️</div>
+      <h1>BAKONG<span>RECON</span></h1>
+    </div>
+    <div class="security-level">
+      <span class="pulse-dot green"></span>
+      <span class="status-text">SECURE RADAR ACTIVE</span>
+    </div>
+    <div class="system-metrics">
+      <div class="metric-item">
+        <span class="label">SOCKET STATE:</span>
+        <span id="socket-status" class="val disconnected font-mono">OFFLINE</span>
+      </div>
+      <div class="metric-item">
+        <span class="label">TELEGRAM BOT:</span>
+        <span id="bot-status-indicator" class="val font-mono">STOPPED</span>
+      </div>
+      <div class="metric-item font-mono" id="current-time">13:08:42</div>
+    </div>
+  </header>
+
+  <!-- Dashboard Container Grid -->
+  <main class="dashboard-grid">
+    
+    <!-- LEFT COLUMN: Control console, simulator, image scanner -->
+    <section class="grid-card control-console">
+      <div class="card-header">
+        <div class="header-bullet"></div>
+        <h2>CONTROL CONSOLE</h2>
+      </div>
+      
+      <!-- Telegram Bot Setup Panel -->
+      <details class="config-details" open>
+        <summary>🔌 TELEGRAM BOT SETUP</summary>
+        <div class="details-content">
+          <p class="config-help">
+            To link a real Telegram Bot, message <a href="https://t.me/BotFather" target="_blank">@BotFather</a> to create a bot, copy the token, and paste it below.
+          </p>
+          <div class="form-group">
+            <label for="bot-token">BOT TOKEN</label>
+            <input type="password" id="bot-token" placeholder="Paste bot token here..." autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="chat-id">EMERGENCY CHAT ID (Optional)</label>
+            <input type="text" id="chat-id" placeholder="e.g. -100293847291 (Group Chat ID)" autocomplete="off">
+          </div>
+          <button id="btn-save-bot" class="btn btn-secondary">INITIALIZE REAL BOT</button>
+        </div>
+      </details>
+
+      <!-- Transaction Simulator controls -->
+      <div class="simulator-panel">
+        <h3>SIMULATION SUITE</h3>
+        <p class="section-desc">Generate mock Bakong receipt images and process them through the OCR pipeline locally.</p>
+        
+        <div class="form-group">
+          <label for="sim-type">RECEIPT TYPE TO GENERATE</label>
+          <select id="sim-type">
+            <option value="aba_valid">✅ Valid ABA Bank Slip (KHR)</option>
+            <option value="aba_duplicate">🚨 Duplicate ABA Bank Slip (KHR)</option>
+            <option value="valid">✅ Valid KHQR Receipt (USD)</option>
+            <option value="duplicate">🚨 Duplicate KHQR Receipt (USD)</option>
+            <option value="fake">🚨 Fake Receipt (ID Missing From Bank)</option>
+            <option value="ocr_fail">🚨 Corrupted Receipt (OCR Scan Failure)</option>
+          </select>
+        </div>
+
+        <button id="btn-simulate" class="btn btn-primary btn-pulse">
+          Simulate Incoming Telegram Receipt
+        </button>
+      </div>
+
+      <!-- Live Scan Visualizer Card -->
+      <div class="receipt-visualizer">
+        <div class="visualizer-header">
+          <span>LIVE CAMERA / IMAGE SCANNER</span>
+          <span id="scan-indicator-badge" class="font-mono">IDLE</span>
+        </div>
+        <div class="visualizer-screen" id="visualizer-screen">
+          <div class="scanner-laser" id="scanner-laser"></div>
+          <div class="ocr-bounding-box" id="ocr-bounding-box"></div>
+          <canvas id="receipt-canvas" width="300" height="420" style="display: none;"></canvas>
+          <div id="visualizer-placeholder" class="placeholder-text">
+            <span>NO ACTIVE SCREENSHOT INCOMING</span>
+            <small>Click "Simulate" or send a picture to the Telegram Bot</small>
+          </div>
+          <img id="scanned-image-preview" alt="Preview" style="display: none;">
+        </div>
+      </div>
+    </section>
+
+    <!-- CENTER COLUMN: Ledger Stream and Emergency Chat Alerts -->
+    <section class="center-column-wrapper">
+      
+      <!-- Real-time Verification Alert Box (Flashes full width on scan) -->
+      <div id="verification-banner" class="verification-banner idle">
+        <div class="banner-icon">🛡️</div>
+        <div class="banner-text">
+          <h3 id="banner-title">SYSTEM MONITOR STANDBY</h3>
+          <p id="banner-desc">Awaiting incoming receipts from the field...</p>
+        </div>
+      </div>
+
+      <!-- Real-Time ledger log stream -->
+      <div class="grid-card ledger-stream-card">
+        <div class="card-header">
+          <div class="header-bullet"></div>
+          <h2>LIVE AR VERIFICATION LEDGER</h2>
+          <div class="header-actions">
+            <span class="live-tag"><span class="pulse-dot font-mono"></span> STREAMING</span>
+          </div>
+        </div>
+        
+        <div class="ledger-container">
+          <div class="ledger-header-row">
+            <span>TIMESTAMP</span>
+            <span>SOURCE</span>
+            <span>TRANSACTION ID</span>
+            <span>STATUS</span>
+          </div>
+          <div class="ledger-list" id="ledger-list">
+            <!-- Dynamic list goes here -->
+            <div class="ledger-empty">No transactions scanned in this session.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Simulated emergency group chat alert logs -->
+      <div class="grid-card emergency-chat-card">
+        <div class="card-header warning-header">
+          <div class="header-bullet alert-bullet"></div>
+          <h2>🚨 AUTOMATED EMERGENCY GROUP ALERTS</h2>
+        </div>
+        <div class="chat-log" id="chat-log">
+          <!-- Chat messages go here -->
+          <div class="chat-system-msg">[SYSTEM] Emergency broadcast channel active. Fraud attempts trigger automated alerts here.</div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: Security Analytics & Bank Reference Database -->
+    <section class="right-column-wrapper">
+
+      <!-- Analytics Cards -->
+      <div class="grid-card analytics-card">
+        <div class="card-header">
+          <div class="header-bullet"></div>
+          <h2>SECURITY STATS</h2>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-val" id="stat-total">0</div>
+            <div class="stat-label">TOTAL SCANS</div>
+          </div>
+          <div class="stat-box success">
+            <div class="stat-val" id="stat-verified">0</div>
+            <div class="stat-label">VERIFIED (SECURE)</div>
+          </div>
+          <div class="stat-box alert">
+            <div class="stat-val" id="stat-blocked">0</div>
+            <div class="stat-label">FRAUD BLOCKED</div>
+          </div>
+        </div>
+        <div class="security-gauge">
+          <div class="gauge-bar">
+            <div class="gauge-fill" id="gauge-fill" style="width: 100%;"></div>
+          </div>
+          <div class="gauge-text">
+            <span>AR SYSTEM INTEGRITY:</span>
+            <span id="gauge-percent" class="font-mono">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bank Reference Ledger Database -->
+      <div class="grid-card bank-db-card">
+        <div class="card-header">
+        <div class="header-bullet"></div>
+        <h2>SECURE BANK LEDGER DATABASE</h2>
+        <div style="display: flex; gap: 6px; margin-left: auto;">
+          <input type="file" id="bank-csv-input" accept=".csv" style="display: none;">
+          <button id="btn-upload-csv" class="btn btn-tertiary font-mono">UPLOAD CSV</button>
+          <button id="btn-reset-db" class="btn btn-tertiary font-mono">RESET DB</button>
+        </div>
+      </div>
+        <p class="section-desc">Real bank records of funds received. Transaction IDs must match these records to be verified.</p>
+        
+        <div class="bank-table-wrapper">
+          <table class="bank-db-table">
+            <thead>
+              <tr>
+                <th>REF / TRANS ID</th>
+                <th>TRX ID (ALIAS)</th>
+                <th>SENDER</th>
+                <th>AMOUNT</th>
+                <th>LEDGER STATE</th>
+              </tr>
+            </thead>
+            <tbody id="bank-db-body">
+              <!-- Dynamically populated bank records -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
