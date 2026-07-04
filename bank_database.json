@@ -64,5 +64,33 @@
     "claimed": true,
     "claimedBy": "Telegram Bot (@daaarriddhqtc)",
     "claimTime": "2026-07-04 06:58:17"
+  },
+  {
+    "id": "100FT38202626009",
+    "trxId": "56890713679",
+    "apv": "565799",
+    "amount": 100,
+    "currency": "KHR",
+    "sender": "LY LAISRUN (011 624 964)",
+    "merchant": "KIM PUTDARARITH",
+    "date": "2026-07-04 14:54:00",
+    "source": "ABA Receipt OCR",
+    "claimed": false,
+    "claimedBy": null,
+    "claimTime": null
+  },
+  {
+    "id": "100FT38202667768",
+    "trxId": "100FT38202667768",
+    "apv": "126397",
+    "amount": 100,
+    "currency": "KHR",
+    "sender": "LY LAISRUN (011 624 964)",
+    "merchant": "KIM PUTDARARITH",
+    "date": "2026-07-04 14:58:00",
+    "source": "ABA Receipt OCR",
+    "claimed": true,
+    "claimedBy": "Telegram Bot (@LY_Laisrun)",
+    "claimTime": "2026-07-04 08:03:51"
   }
 ]

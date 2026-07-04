@@ -59,6 +59,10 @@
             <label for="chat-id">EMERGENCY CHAT ID (Optional)</label>
             <input type="text" id="chat-id" placeholder="e.g. -100293847291 (Group Chat ID)" autocomplete="off">
           </div>
+          <div class="form-group">
+            <label for="audit-bot-username">TRUSTED AUDIT BOT USERNAME (Optional)</label>
+            <input type="text" id="audit-bot-username" placeholder="e.g. auditbot" autocomplete="off">
+          </div>
           <button id="btn-save-bot" class="btn btn-secondary">INITIALIZE REAL BOT</button>
         </div>
       </details>
@@ -73,8 +77,10 @@
           <select id="sim-type">
             <option value="aba_valid">✅ Valid ABA Bank Slip (KHR)</option>
             <option value="aba_duplicate">🚨 Duplicate ABA Bank Slip (KHR)</option>
+            <option value="aba_modified">🚨 Photoshop Fraud: Edited ABA Amount (KHR)</option>
             <option value="valid">✅ Valid KHQR Receipt (USD)</option>
             <option value="duplicate">🚨 Duplicate KHQR Receipt (USD)</option>
+            <option value="khqr_modified">🚨 Photoshop Fraud: Edited KHQR Amount (USD)</option>
             <option value="fake">🚨 Fake Receipt (ID Missing From Bank)</option>
             <option value="ocr_fail">🚨 Corrupted Receipt (OCR Scan Failure)</option>
           </select>

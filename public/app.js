@@ -168,6 +168,10 @@ function generateReceiptImage(type) {
       trxId = '56868300340';
       refNo = '100FT38197949889';
       amountText = '-12,623.52 KHR';
+    } else if (type === 'aba_modified') {
+      trxId = '56868300340';
+      refNo = '100FT38197949889';
+      amountText = '-999,999.00 KHR'; // Photoshop edited amount
     }
 
     // Amount text (Large, dark gray)
@@ -195,7 +199,7 @@ function generateReceiptImage(type) {
       { label: 'Trx. ID:', value: trxId },
       { label: 'APV:', value: '671875' },
       { label: 'From account:', value: sender },
-      { label: 'Original amount:', value: '12,623.52 KHR' },
+      { label: 'Original amount:', value: type === 'aba_modified' ? '999,999.00 KHR' : '12,623.52 KHR' },
       { label: 'Purchase #:', value: '178312239334854' },
       { label: 'Reference #:', value: refNo },
       { label: 'Seller:', value: 'TOTAL SEN SOK 2 A' },
@@ -292,6 +296,11 @@ function generateReceiptImage(type) {
     if (type === 'valid' || type === 'duplicate') {
       txnId = 'KHQR-98327491-B';
       amount = '$120.00';
+      sender = 'Sokha Lim';
+      dateText = '2026-07-04 10:23:45';
+    } else if (type === 'khqr_modified') {
+      txnId = 'KHQR-98327491-B';
+      amount = '$9,999.00'; // Photoshop edited amount (actual is $120.00)
       sender = 'Sokha Lim';
       dateText = '2026-07-04 10:23:45';
     } else if (type === 'fake') {
@@ -461,6 +470,12 @@ function handleVerificationUIFeedback(result) {
       bannerTitle.textContent = '🚨 STOP — This receipt was already used!';
       reasonText = `Someone submitted this receipt before. Ref: ${result.scannedId} was already claimed by ${result.details.claimedBy}. Do NOT release goods — hold the order and contact your manager.`;
       emergencyChatText = `🚨 [DUPLICATE SCAM BLOCKED] A sales rep submitted a receipt that was already used. Ref No: ${result.scannedId}. Original buyer: ${result.details.sender}. DO NOT release goods. Hold the order and verify with the bank.`;
+    } else if (result.reason === 'DETAIL_MISMATCH') {
+      bannerTitle.textContent = '🚨 STOP — Photoshop Fraud Detected! (Amount Mismatch)';
+      const scannedAmt = result.details.scannedCurrency === 'KHR' ? `${result.details.scannedAmount.toLocaleString()} KHR` : `$${result.details.scannedAmount.toFixed(2)}`;
+      const bankAmt = result.details.currency === 'KHR' ? `${result.details.amount.toLocaleString()} KHR` : `$${result.details.amount.toFixed(2)}`;
+      reasonText = `Photoshop Fraud! Receipt claims ${scannedAmt}, but the secure bank ledger lists ${bankAmt}. Do NOT release goods — contact your manager immediately.`;
+      emergencyChatText = `🚨 [PHOTOSHOP FRAUD BLOCKED] Amount mismatch detected on receipt. Ref No: ${result.scannedId}. Receipt says ${scannedAmt}, but bank database says ${bankAmt}. DO NOT release goods.`;
     } else if (result.reason === 'UNKNOWN_ID') {
       bannerTitle.textContent = '🚨 STOP — This receipt is NOT in our bank records!';
       reasonText = `Reference No "${result.scannedId}" was not found in the bank database. This screenshot may be fake or edited. Do NOT release goods — report to your manager immediately.`;
@@ -623,7 +638,8 @@ fetch('/api/initial-state')
       if (data.botConfig.botToken === 'CONFIGURED') {
         document.getElementById('bot-token').placeholder = 'Token is saved & active';
       }
-      document.getElementById('chat-id').value = data.botConfig.chatId;
+      document.getElementById('chat-id').value = data.botConfig.chatId || '';
+      document.getElementById('audit-bot-username').value = data.botConfig.auditBotUsername || '';
     }
     
     renderLedgerList(data.ledgerLogs);
@@ -634,10 +650,12 @@ fetch('/api/initial-state')
 const btnSaveBot = document.getElementById('btn-save-bot');
 const botTokenInput = document.getElementById('bot-token');
 const chatIdInput = document.getElementById('chat-id');
+const auditBotUsernameInput = document.getElementById('audit-bot-username');
 
 btnSaveBot.addEventListener('click', () => {
   const token = botTokenInput.value.trim();
   const chatId = chatIdInput.value.trim();
+  const auditBotUsername = auditBotUsernameInput.value.trim();
 
   if (!token && !document.getElementById('bot-token').placeholder.includes('saved')) {
     alert('Please enter a Telegram Bot Token.');
@@ -649,7 +667,7 @@ btnSaveBot.addEventListener('click', () => {
   fetch('/api/config-bot', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, chatId })
+    body: JSON.stringify({ token, chatId, auditBotUsername })
   })
   .then(res => res.json())
   .then(data => {

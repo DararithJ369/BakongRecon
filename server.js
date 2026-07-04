@@ -7,6 +7,7 @@ const Tesseract = require('tesseract.js');
 const { Telegraf } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
+const { extractTransactionId: parseTelegramTransactionId, parseBankNotification: parseTelegramBankNotification, verifyAuditBotSender, parseReceiptOcrText } = require('./telegram-parser');
 
 const app = express();
 const server = http.createServer(app);
@@ -80,7 +81,7 @@ function extractTransactionId(text) {
   console.log('------------------------------');
 
   // Normalize text: replace multiple spaces/newlines
-  const cleanText = text.replace(/\s+/g, ' ');
+  const cleanText = text.replace(/\s+/g, ' ').trim();
 
   // Pattern 1: ABA Reference # / FT ID (e.g., 100FT38197949889)
   // Look for "Reference #" or "Ref #" followed by alphanumeric string containing FT
@@ -98,8 +99,8 @@ function extractTransactionId(text) {
   }
 
   // Pattern 2: ABA / Acleda Trx ID (e.g. Trx. ID: 56868300340)
-  // Usually "Trx. ID" or "Trx ID" followed by 10-13 digits
-  const trxPattern = /(?:trx\.?\s*id|transaction\s*id)[^\w\n]*(\d{10,13})/i;
+  // Usually "Trx. ID" or "Trx ID" followed by 8-20 digits
+  const trxPattern = /(?:trx\.?\s*id|transaction\s*id)[^\w\n]*(\d{8,20})/i;
   const matchTrx = text.match(trxPattern);
   if (matchTrx) {
     return matchTrx[1].trim();
@@ -113,14 +114,14 @@ function extractTransactionId(text) {
   }
 
   // Pattern 4: Generic Transaction ID prefixes, looking for 8-12 digits
-  const refPattern = /(?:txn|ref|reference|trace|id)[^0-9\n]*(\d{8,12})/i;
+  const refPattern = /(?:txn|ref|reference|trace|id)[^0-9\n]*(\d{8,20})/i;
   const matchRef = text.match(refPattern);
   if (matchRef) {
     return matchRef[1].trim();
   }
 
-  // Pattern 5: Any raw sequence of 8-12 numbers
-  const numberPattern = /\b\d{8,12}\b/;
+  // Pattern 5: Any raw sequence of 8-20 numbers
+  const numberPattern = /\b\d{8,20}\b/;
   const matchNumber = text.match(numberPattern);
   if (matchNumber) {
     return matchNumber[0];
@@ -165,24 +166,28 @@ function parseBankNotification(text) {
   const clean = text.replace(/\s+/g, ' ').trim();
 
   // ─────────────────────────────────────────────────────────────
-  // FORMAT 1: PayWay by ABA bot
-  // Example: "$100 paid by LY LAISRUN (*964) on Jul 04, 02:14 PM via ABA PAY at KIM PUTDARARITH. Trx. ID: 178314927151090, APV: 444368."
+  // FORMAT 1: PayWay / ABA KHQR by ABA bot
+  // Examples:
+  // "$100 paid by LY LAISRUN (*964) on Jul 04, 02:14 PM via ABA PAY at KIM PUTDARARITH. Trx. ID: 178314927151090, APV: 444368."
+  // "៛100 paid by Hoa Ratha (*221) on Jul 04, 02:18 PM via ABA KHQR (ACLEDA Bank Plc.) at KIM PUTDARARITH. Trx. ID: 178314949354277, APV: 380602."
   // ─────────────────────────────────────────────────────────────
-  const payWayRegex = /\$(\d+(?:\.\d+)?)\s+paid by\s+([A-Z][A-Z\s]+?)\s+\(\*(\d+)\)\s+on\s+(\w{3}\s+\d{1,2}),\s+([\d:]+\s+[AP]M)\s+via\s+ABA PAY\s+at\s+([A-Z][A-Z\s]+?)\s*\.\s+Trx\.\s*ID:\s*(\d+),\s*APV:\s*(\d+)/i;
+  const payWayRegex = /([៛$])\s*([\d,]+(?:\.\d+)?)\s+paid by\s+(.+?)\s+\(\*(\d+)\)\s+on\s+(\w{3}\s+\d{1,2}),\s+([\d:]+\s+[AP]M)\s+via\s+ABA\s+(PAY|KHQR)(?:\s+\(([^)]+)\))?\s+at\s+(.+?)\s*\.\s+Trx\.\s*ID:\s*(\d{8,20}),\s*APV:\s*(\d+)/i;
   const payWayMatch = clean.match(payWayRegex);
 
   if (payWayMatch) {
-    const [, amountStr, senderName, phoneDigits, dateStr, timeStr, merchant, trxId, apv] = payWayMatch;
+    const [, amountSymbol, amountStr, senderName, phoneDigits, dateStr, timeStr, paymentType, merchantBank, merchantName, trxId, apv] = payWayMatch;
+    const currency = amountSymbol === '៛' || /KHR/i.test(clean) ? 'KHR' : 'USD';
+    const merchant = (merchantName || merchantBank || 'N/A').trim();
     return {
       id: trxId,                                        // Trx. ID as primary key
       trxId: trxId,
       apv: apv,
-      amount: parseFloat(amountStr),
-      currency: 'USD',
+      amount: parseFloat(amountStr.replace(/,/g, '')),
+      currency,
       sender: `${senderName.trim()} (*${phoneDigits})`,
       merchant: merchant.trim(),
       date: parsePayWayDateTime(dateStr, timeStr),      // Real extracted date+time
-      source: 'PayWay by ABA (Auto-scraped)',
+      source: `ABA ${paymentType.toUpperCase()} (Auto-scraped)`,
       claimed: false,
       claimedBy: null,
       claimTime: null
@@ -207,7 +212,7 @@ function parseBankNotification(text) {
 
   // FORMAT 4: Generic Ref / Trx ID label
   if (!id) {
-    const refMatch = clean.match(/(?:ref|reference|trx\.?\s*id|transaction\s*id)[^\w\n]*([A-Z0-9-]+)/i);
+    const refMatch = clean.match(/(?:ref|reference|trx\.?\s*id|transaction\s*id)[^\w\n]*([A-Z0-9-]{8,20})/i);
     if (refMatch) id = refMatch[1].toUpperCase().trim();
   }
 
@@ -215,24 +220,38 @@ function parseBankNotification(text) {
 
   // Amount & currency
   let amount = 0.0;
-  let currency = 'USD';
-  const amountMatch = clean.match(/(?:USD|KHR|\$)\s*([\d,.]+)|([\d,.]+)\s*(?:USD|KHR)/i);
+  let currency = /៛|KHR/i.test(clean) ? 'KHR' : 'USD';
+  const amountMatch = clean.match(/([៛$])\s*([\d,.]+(?:\.\d+)?)|(?:USD|KHR)\s*([\d,.]+(?:\.\d+)?)|([\d,.]+(?:\.\d+)?)\s*(?:USD|KHR)/i);
   if (amountMatch) {
-    const rawVal = amountMatch[1] || amountMatch[2];
+    const rawVal = amountMatch[2] || amountMatch[3] || amountMatch[4];
     amount = parseFloat(rawVal.replace(/,/g, '')) || 0.0;
-    if (clean.toUpperCase().includes('KHR')) currency = 'KHR';
-    else if (clean.includes('$') || clean.toUpperCase().includes('USD')) currency = 'USD';
+    if (amountMatch[1] === '៛' || clean.toUpperCase().includes('KHR')) currency = 'KHR';
+    else if (amountMatch[1] === '$' || clean.toUpperCase().includes('USD')) currency = 'USD';
   }
 
   // Sender
   let sender = 'Unknown Sender';
-  const senderMatch = clean.match(/from\s+(?:account\s+)?([A-Z\s]{3,30})(?:\s*\(|\s*\.|\s*Ref|\s*Date|\s*Transaction)/i);
+  const senderMatch = clean.match(/paid by\s+(.+?)\s+\(\*\d+\)/i) || clean.match(/from\s+(?:account\s+)?(.+?)(?:\s*\(|\s*\.|\s*Ref|\s*Date|\s*Transaction|\s+at\s+)/i);
   if (senderMatch) {
     sender = senderMatch[1].trim();
   } else {
-    const simpleSenderMatch = clean.match(/from\s+([A-Z\s]{3,20})/i);
+    const simpleSenderMatch = clean.match(/from\s+(.+?)(?:\s+at\s+|\s*\.|\s*$)/i);
     if (simpleSenderMatch) sender = simpleSenderMatch[1].trim();
   }
+
+  let merchant = 'N/A';
+  const merchantMatch = clean.match(/\s+at\s+(.+?)(?:\s*\.\s*Trx\.?|\s*\.\s*Reference|\s*\.\s*APV|\s*$)/i);
+  if (merchantMatch) {
+    merchant = merchantMatch[1].replace(/\s+\([^)]*\)/g, '').trim();
+  }
+
+  let date = new Date().toISOString().replace('T', ' ').substring(0, 19);
+  const dateMatch = clean.match(/on\s+(\w{3}\s+\d{1,2}),\s+([\d:]+\s+[AP]M)/i);
+  if (dateMatch) {
+    date = parsePayWayDateTime(dateMatch[1], dateMatch[2]);
+  }
+
+  const apvMatch = clean.match(/APV:\s*(\d+)/i);
 
   return {
     id,
@@ -240,8 +259,10 @@ function parseBankNotification(text) {
     amount,
     currency,
     sender,
-    date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-    source: 'Manual/Forward',
+    merchant,
+    date,
+    apv: apvMatch ? apvMatch[1] : null,
+    source: /ABA\s+(PAY|KHQR)/i.test(clean) ? 'ABA Pay/KHQR (Auto-scraped)' : 'Manual/Forward',
     claimed: false,
     claimedBy: null,
     claimTime: null
@@ -251,10 +272,14 @@ function parseBankNotification(text) {
 // ==========================================================
 // CORE VERIFICATION LOGIC
 // ==========================================
-function verifyTransaction(transactionId, source = 'Simulation') {
+function verifyTransaction(scannedReceipt, source = 'Simulation') {
   stats.totalScans++;
   const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
   
+  // scannedReceipt can be a string (transactionId) or an object (from parseReceiptOcrText)
+  const transactionId = typeof scannedReceipt === 'string' ? scannedReceipt : (scannedReceipt ? scannedReceipt.id : null);
+  const altTrxId = typeof scannedReceipt === 'object' && scannedReceipt ? scannedReceipt.trxId : null;
+
   let result = {
     timestamp,
     source,
@@ -272,7 +297,9 @@ function verifyTransaction(transactionId, source = 'Simulation') {
     // Search bank DB (checks both primary Reference ID and secondary Trx ID alias)
     const dbRecord = bankDatabase.find(r => 
       r.id.toUpperCase() === transactionId.toUpperCase() || 
-      (r.trxId && r.trxId.toUpperCase() === transactionId.toUpperCase())
+      (r.trxId && r.trxId.toUpperCase() === transactionId.toUpperCase()) ||
+      (altTrxId && r.id.toUpperCase() === altTrxId.toUpperCase()) ||
+      (altTrxId && r.trxId && r.trxId.toUpperCase() === altTrxId.toUpperCase())
     );
 
     if (!dbRecord) {
@@ -284,8 +311,34 @@ function verifyTransaction(transactionId, source = 'Simulation') {
       result.errorDescription = `Duplicate presentation! ID ${transactionId} was already claimed on ${dbRecord.claimTime} by ${dbRecord.claimedBy}.`;
       stats.fraudBlockedCount++;
       result.details = { ...dbRecord };
+    } else if (typeof scannedReceipt === 'object' && scannedReceipt) {
+      // Cross-check details (Amount and Currency) to prevent Photoshop fraud
+      const amountMismatch = Math.abs(dbRecord.amount - scannedReceipt.amount) > 0.01;
+      const currencyMismatch = dbRecord.currency.toUpperCase() !== scannedReceipt.currency.toUpperCase();
+
+      if (amountMismatch || currencyMismatch) {
+        result.reason = 'DETAIL_MISMATCH';
+        result.errorDescription = `Photoshop Fraud Detected! The receipt claims ${scannedReceipt.amount} ${scannedReceipt.currency}, but the actual bank record lists ${dbRecord.amount} ${dbRecord.currency}.`;
+        stats.fraudBlockedCount++;
+        result.details = { 
+          ...dbRecord, 
+          scannedAmount: scannedReceipt.amount, 
+          scannedCurrency: scannedReceipt.currency 
+        };
+      } else {
+        // Success
+        dbRecord.claimed = true;
+        dbRecord.claimTime = timestamp;
+        dbRecord.claimedBy = source;
+
+        result.status = 'VERIFIED';
+        result.reason = 'SUCCESS';
+        result.details = { ...dbRecord };
+        stats.verifiedCount++;
+        saveBankDatabase();
+      }
     } else {
-      // Success: Verify & Claim it
+      // Success (fallback when only transactionId string is provided)
       dbRecord.claimed = true;
       dbRecord.claimTime = timestamp;
       dbRecord.claimedBy = source;
@@ -325,7 +378,8 @@ app.get('/api/initial-state', (req, res) => {
     bankDatabase,
     botConfig: {
       botToken: process.env.TELEGRAM_BOT_TOKEN ? 'CONFIGURED' : '',
-      chatId: process.env.TELEGRAM_CHAT_ID || ''
+      chatId: process.env.TELEGRAM_CHAT_ID || '',
+      auditBotUsername: process.env.AUDIT_BOT_USERNAME || ''
     }
   });
 });
@@ -425,23 +479,54 @@ app.post('/api/upload-bank-log', upload.single('bankLog'), (req, res) => {
 });
 
 
+// Helper to save configuration to .env file
+function saveEnvConfig(token, chatId, auditBotUsername) {
+  try {
+    const envPath = path.join(__dirname, '.env');
+    let envContent = '';
+    envContent += `# ==========================================\n`;
+    envContent += `# BAKONGRECON TELEGRAM CONFIGURATION\n`;
+    envContent += `# ==========================================\n`;
+    
+    const finalToken = token || process.env.TELEGRAM_BOT_TOKEN || '';
+    const finalChatId = chatId || process.env.TELEGRAM_CHAT_ID || '';
+    const finalAuditBot = auditBotUsername || process.env.AUDIT_BOT_USERNAME || '';
+    
+    envContent += `TELEGRAM_BOT_TOKEN="${finalToken}"\n`;
+    envContent += `TELEGRAM_CHAT_ID=${finalChatId}\n`;
+    envContent += `AUDIT_BOT_USERNAME="${finalAuditBot}"\n`;
+    envContent += `\n# Server configuration\n`;
+    envContent += `PORT=${process.env.PORT || 3000}\n`;
+
+    fs.writeFileSync(envPath, envContent, 'utf8');
+    console.log('Saved configuration to .env file.');
+  } catch (err) {
+    console.error('Failed to save .env file:', err);
+  }
+}
+
 // Update/Save Telegram config
 let botInstance = null;
 app.post('/api/config-bot', (req, res) => {
-  const { token, chatId } = req.body;
+  const { token, chatId, auditBotUsername } = req.body;
   
   try {
-    if (token) {
-      // Save in memory and optionally write to .env
-      process.env.TELEGRAM_BOT_TOKEN = token;
-      if (chatId) process.env.TELEGRAM_CHAT_ID = chatId;
+    if (token) process.env.TELEGRAM_BOT_TOKEN = token;
+    if (chatId) process.env.TELEGRAM_CHAT_ID = chatId;
+    if (auditBotUsername !== undefined) process.env.AUDIT_BOT_USERNAME = auditBotUsername;
 
-      initializeTelegramBot(token);
+    // Persist to .env
+    saveEnvConfig(token, chatId, auditBotUsername);
+
+    if (process.env.TELEGRAM_BOT_TOKEN) {
+      initializeTelegramBot(process.env.TELEGRAM_BOT_TOKEN);
     }
+    
     res.json({ 
       success: true, 
-      botToken: token ? 'CONFIGURED' : '', 
-      chatId: chatId || '' 
+      botToken: process.env.TELEGRAM_BOT_TOKEN ? 'CONFIGURED' : '', 
+      chatId: process.env.TELEGRAM_CHAT_ID || '',
+      auditBotUsername: process.env.AUDIT_BOT_USERNAME || ''
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -457,10 +542,14 @@ app.post('/api/verify-upload', upload.single('receipt'), async (req, res) => {
   try {
     // Run OCR via Tesseract
     const ocrResult = await Tesseract.recognize(req.file.buffer, 'eng');
-    const transactionId = extractTransactionId(ocrResult.data.text);
+    const ocrText = ocrResult.data.text || '';
     
-    // Run verification against database
-    const verificationResult = verifyTransaction(transactionId, 'Dashboard Simulation');
+    // Parse receipt details fully (Ref #, Trx ID, Amount, Currency)
+    const parsedReceipt = parseReceiptOcrText(ocrText);
+    const transactionId = extractTransactionId(ocrText);
+    
+    // Run verification against database (prefer the fully parsed receipt object)
+    const verificationResult = verifyTransaction(parsedReceipt || transactionId, 'Dashboard Simulation');
     
     res.json(verificationResult);
   } catch (error) {
@@ -515,12 +604,15 @@ function initializeTelegramBot(token) {
 
       console.log(`Telegram bot received image from ${fromUser}: ${imageUrl}`);
 
-      // Run OCR using Tesseract (recognize can load URLs!)
+      // Run OCR using Tesseract for verification.
       const ocrResult = await Tesseract.recognize(imageUrl, 'eng');
-      const transactionId = extractTransactionId(ocrResult.data.text);
+      const ocrText = ocrResult.data.text || '';
 
-      // Verify transaction against mock database
-      const verResult = verifyTransaction(transactionId, `Telegram Bot (${fromUser})`);
+      const parsedReceipt = parseReceiptOcrText(ocrText);
+      const transactionId = parseTelegramTransactionId(ocrText);
+
+      // Verify transaction against mock database (prefer fully parsed receipt object)
+      const verResult = verifyTransaction(parsedReceipt || transactionId, `Telegram Bot (${fromUser})`);
 
       if (verResult.status === 'VERIFIED') {
         const details = verResult.details;
@@ -547,6 +639,16 @@ function initializeTelegramBot(token) {
             `• <b>First used on:</b> ${dbFormatTime(details.claimTime)}\n` +
             `• <b>First submitted by:</b> ${details.claimedBy}\n\n` +
             `👉 <i>Hold the order. Contact your manager and confirm with the bank directly before proceeding.</i>`;
+        } else if (verResult.reason === 'DETAIL_MISMATCH') {
+          const details = verResult.details;
+          warningMessage =
+            `🚨 <b>STOP — Photoshop Fraud Detected!</b>\n\n` +
+            `<b>Reason: The receipt details do not match the official bank record.</b>\n\n` +
+            `The submitted receipt photo claims a payment of <b>${details.scannedAmount.toLocaleString(undefined, {minimumFractionDigits:2})} ${details.scannedCurrency}</b>, but our bank database shows the actual transaction was for <b>${details.amount.toLocaleString(undefined, {minimumFractionDigits:2})} ${details.currency}</b>.\n\n` +
+            `• <b>Reference No:</b> <code>${details.id}</code>\n` +
+            `• <b>Actual Buyer:</b> ${details.sender}\n` +
+            `• <b>Actual Amount:</b> ${details.amount.toLocaleString(undefined, {minimumFractionDigits:2})} ${details.currency}\n\n` +
+            `👉 <i>This is a high-risk fraud attempt. Hold the order and contact management immediately.</i>`;
         } else if (verResult.reason === 'UNKNOWN_ID') {
           warningMessage =
             `🚨 <b>STOP — Do NOT release goods!</b>\n\n` +
@@ -574,7 +676,12 @@ function initializeTelegramBot(token) {
               `A suspicious payment screenshot was just submitted and has been automatically rejected.\n\n` +
               `• <b>Submitted by:</b> ${fromUser}\n` +
               `• <b>Reference No:</b> <code>${verResult.scannedId}</code>\n` +
-              `• <b>Problem:</b> ${verResult.reason === 'DUPLICATE' ? 'This receipt was already used before (Duplicate scam)' : verResult.reason === 'UNKNOWN_ID' ? 'This reference number does not exist in the bank records (Possibly faked)' : 'The system could not read a valid reference number from the image'}\n\n` +
+              `• <b>Problem:</b> ${
+                verResult.reason === 'DUPLICATE' ? 'This receipt was already used before (Duplicate scam)' : 
+                verResult.reason === 'DETAIL_MISMATCH' ? 'Amount or Currency mismatch (Photoshop/Editing fraud attempt)' :
+                verResult.reason === 'UNKNOWN_ID' ? 'This reference number does not exist in the bank records (Possibly faked)' : 
+                'The system could not read a valid reference number from the image'
+              }\n\n` +
               `⛔ <b>Action required: Do not release goods. Verify with the bank directly and report to management.</b>`
               , { parse_mode: 'HTML' }
             );
@@ -599,91 +706,86 @@ function initializeTelegramBot(token) {
     const fromId = String(ctx.from.id);
     const isGroup = chatType === 'group' || chatType === 'supergroup';
 
-    // ── PAYWAY BY ABA AUTO-SCRAPE DETECTION ──────────────────────
-    // Matches "$X paid by NAME (*XXXX) on Mon DD, HH:MM AM via ABA PAY at MERCHANT. Trx. ID: ...."
-    const isPayWay = /paid by .+ on \w{3} \d{1,2},\s*\d{1,2}:\d{2}\s*[AP]M via ABA PAY/i.test(text);
-
-    if (isPayWay) {
-      const parsed = parseBankNotification(text);
-      if (parsed) {
-        const existingIdx = bankDatabase.findIndex(
-          r => r.id === parsed.id || r.trxId === parsed.trxId
-        );
-
-        if (existingIdx === -1) {
-          // New record — add to database
-          bankDatabase.push(parsed);
-          saveBankDatabase();
-
-          // Broadcast to dashboard
-          io.emit('dashboard_update', { stats, latestTransaction: null, ledgerLogs, bankDatabase });
-          io.emit('bank_scraped', parsed);
-
-          console.log(`[PayWay Scraper] ✅ Added: Trx.ID=${parsed.trxId}, Amount=$${parsed.amount}, Sender=${parsed.sender}, Date=${parsed.date}`);
-
-          // Only reply in private chats — stay silent in groups to avoid spam
-          if (!isGroup) {
-            ctx.replyWithHTML(
-              `📥 <b>Bank Ledger Auto-Updated</b>\n\n` +
-              `A PayWay by ABA payment notification was detected and automatically added to the bank database.\n\n` +
-              `• <b>Trx. ID:</b> <code>${parsed.trxId}</code>\n` +
-              `• <b>APV:</b> ${parsed.apv || 'N/A'}\n` +
-              `• <b>Amount:</b> $${parsed.amount.toFixed(2)}\n` +
-              `• <b>Paid by:</b> ${parsed.sender}\n` +
-              `• <b>Merchant:</b> ${parsed.merchant || 'N/A'}\n` +
-              `• <b>Date / Time:</b> ${parsed.date}\n` +
-              `• <b>Status:</b> 🟢 UNCLAIMED (waiting for receipt scan)`
-            );
-          }
-        } else {
-          // Duplicate — already in DB, skip silently in groups
-          if (!isGroup) {
-            ctx.replyWithHTML(
-              `ℹ️ <b>Already in Bank Records</b>\n\n` +
-              `Trx. ID <code>${parsed.trxId}</code> is already logged.\n` +
-              `• Status: ${bankDatabase[existingIdx].claimed ? '🔴 CLAIMED' : '🟢 UNCLAIMED'}`
-            );
-          }
-        }
-      }
-      return; // Don't fall through to generic handler
+    // 1. Scrape only from the configured group Chat ID if it's a group message
+    const targetChatId = process.env.TELEGRAM_CHAT_ID;
+    if (isGroup && targetChatId && String(ctx.chat.id) !== String(targetChatId)) {
+      console.log(`[Telegram Scraper] Ignored text in unconfigured group chat: ${ctx.chat.id}`);
+      return;
     }
 
-    // ── GENERIC NOTIFICATION TEXT (forwarded bank alerts, etc.) ──
-    const isNotification = text.toLowerCase().includes('received') ||
-                           text.toLowerCase().includes('transfer') ||
-                           text.toLowerCase().includes('ref') ||
-                           text.toLowerCase().includes('trx');
+    const parsed = parseBankNotification(text);
 
-    if (isNotification && !isGroup) {
-      const parsed = parseBankNotification(text);
-      if (parsed) {
-        const existing = bankDatabase.find(r => r.id.toUpperCase() === parsed.id.toUpperCase());
-        if (existing) {
-          ctx.replyWithHTML(
-            `ℹ️ <b>Transaction Already Logged</b>\n\n` +
-            `• <b>Ref ID:</b> <code>${existing.id}</code>\n` +
-            `• <b>Amount:</b> ${existing.amount.toLocaleString(undefined, {minimumFractionDigits:2})} ${existing.currency}\n` +
-            `• <b>Status:</b> ${existing.claimed ? '🔴 CLAIMED' : '🟢 UNCLAIMED'}`
-          );
-        } else {
-          bankDatabase.push(parsed);
-          saveBankDatabase();
+    if (parsed) {
+      // 2. If it's a group message, we MUST verify that the sender is the trusted auditbot
+      if (isGroup) {
+        const expectedAuditBotUsername = process.env.AUDIT_BOT_USERNAME || 'auditbot';
+        const isAuditBot = verifyAuditBotSender(ctx.from, expectedAuditBotUsername);
+
+        if (!isAuditBot) {
+          const warningMsg = `Blocked potential bank log spoofing attempt in group chat ${ctx.chat.id} from user ${fromUser}. (Sender is not the trusted AuditBot)`;
+          console.warn(`[Telegram Scraper] ⚠️ ${warningMsg}`);
+          
+          const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+          ledgerLogs.unshift({
+            timestamp,
+            source: `Telegram Group (${fromUser})`,
+            scannedId: parsed.id || 'N/A',
+            status: 'FRAUD_DETECTED',
+            reason: 'SPOOFED_BANK_NOTIFICATION',
+            errorDescription: `Attempted to inject fake bank notification for transaction ${parsed.id} of ${parsed.amount} ${parsed.currency}.`
+          });
+          if (ledgerLogs.length > 50) ledgerLogs.pop();
+          
           io.emit('dashboard_update', { stats, latestTransaction: null, ledgerLogs, bankDatabase });
+          return;
+        }
+      }
+
+      const existingIdx = bankDatabase.findIndex(
+        r => r.id.toUpperCase() === parsed.id.toUpperCase() || (r.trxId && r.trxId.toUpperCase() === parsed.trxId.toUpperCase())
+      );
+
+      parsed.sourceChatId = String(ctx.chat.id);
+      parsed.sourceMessageId = String(ctx.message.message_id);
+      parsed.sourceUsername = ctx.from.username ? `@${ctx.from.username}` : null;
+      parsed.sourceChatType = chatType;
+
+      if (existingIdx === -1) {
+        bankDatabase.push(parsed);
+        saveBankDatabase();
+
+        io.emit('dashboard_update', { stats, latestTransaction: null, ledgerLogs, bankDatabase });
+        io.emit('bank_scraped', parsed);
+
+        console.log(`[Telegram Scraper] ✅ Added: Ref/Trx=${parsed.id}, Amount=${parsed.amount} ${parsed.currency}, Sender=${parsed.sender}, Date=${parsed.date}`);
+
+        if (!isGroup) {
           ctx.replyWithHTML(
-            `📥 <b>Bank Ledger Updated</b>\n\n` +
-            `• <b>Ref ID:</b> <code>${parsed.id}</code>\n` +
-            `• <b>Amount:</b> ${parsed.amount.toLocaleString(undefined, {minimumFractionDigits:2})} ${parsed.currency}\n` +
-            `• <b>Sender:</b> ${parsed.sender}\n` +
-            `• <b>Date:</b> ${parsed.date}\n` +
-            `• <b>Status:</b> 🟢 UNCLAIMED (awaiting sales rep screenshot scan)`
+            `📥 <b>Bank Ledger Auto-Updated</b>\n\n` +
+            `A Telegram bank notification was detected and automatically added to the bank database.\n\n` +
+            `• <b>Reference / Trx ID:</b> <code>${parsed.id}</code>\n` +
+            `• <b>APV:</b> ${parsed.apv || 'N/A'}\n` +
+            `• <b>Amount:</b> ${parsed.currency === 'KHR' ? '៛' : '$'}${parsed.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+            `• <b>Paid by:</b> ${parsed.sender}\n` +
+            `• <b>Merchant:</b> ${parsed.merchant || 'N/A'}\n` +
+            `• <b>Date / Time:</b> ${parsed.date}\n` +
+            `• <b>Status:</b> 🟢 UNCLAIMED (waiting for receipt scan)`
           );
         }
-      } else {
-        ctx.reply('❓ I detected a bank notification pattern, but could not read the transaction ID or amount. Please check the format.');
+      } else if (!isGroup) {
+        const existing = bankDatabase[existingIdx];
+        ctx.replyWithHTML(
+          `ℹ️ <b>Already in Bank Records</b>\n\n` +
+          `Reference / Trx ID <code>${parsed.id}</code> is already logged.\n` +
+          `• Status: ${existing.claimed ? '🔴 CLAIMED' : '🟢 UNCLAIMED'}`
+        );
       }
-    } else if (!isGroup) {
-      ctx.reply('To verify a receipt, send me a photo. To add a bank transaction, forward a PayWay by ABA notification message here.');
+
+      return;
+    }
+
+    if (!isGroup) {
+      ctx.reply('To verify a receipt, send me a photo. To add a bank transaction, forward an ABA PAY or ABA KHQR notification message here.');
     }
   });
 
