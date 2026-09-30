@@ -1,4 +1,4 @@
-# BakonRecon
+# BakongRecon
 
 Anti-fraud tracking, payment verification, and financial operations platform for Cambodian Bakong and bank payments. Automatically listens to official bank payment notifications from Telegram, extracts transaction details, stores them in a centralized database, verifies customer receipts, and generates real-time revenue analytics.
 
