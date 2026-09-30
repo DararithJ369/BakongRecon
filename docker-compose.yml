@@ -1,0 +1,84 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: bakongrecon-db
+    environment:
+      POSTGRES_USER: bakongrecon
+      POSTGRES_PASSWORD: bakongrecon
+      POSTGRES_DB: bakongrecon
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Internal port only; no host mapping to avoid conflict with local PostgreSQL
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bakongrecon"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bakongrecon-backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://bakongrecon:bakongrecon@db:5432/bakongrecon
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./frontend:/frontend
+    command: >
+      sh -c "python -m alembic -c alembic.ini upgrade head &&
+             python -m uvicorn app.main:app --host 0.0.0.0 --port 3000"
+
+  telegram-bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bakongrecon-telegram-bot
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://bakongrecon:bakongrecon@db:5432/bakongrecon
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./frontend:/frontend
+    command: >
+      sh -c "python -m alembic -c alembic.ini upgrade head &&
+             python -m app.services.telegram_bot"
+
+  telegram-scraper:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bakongrecon-telegram-scraper
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://bakongrecon:bakongrecon@db:5432/bakongrecon
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./frontend:/frontend
+    stdin_open: true
+    tty: true
+    command: python -m app.services.telegram_scraper
+
+volumes:
+  postgres_data:

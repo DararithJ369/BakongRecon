@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BakongRecon - Anti-Fraud & Payment Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo-mark">BR</div>
+      <div class="brand-text">
+        <h1>BakongRecon</h1>
+        <span>Anti-Fraud & Payment Intelligence for Cambodian Businesses</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-reset" class="btn btn-secondary">Reset Demo</button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- KPI Cards & Revenue Trends -->
+    <section class="kpi-grid" id="kpi-grid">
+      <!-- JS -->
+    </section>
+
+    <!-- Operational Pattern Intelligence -->
+    <section class="panel pattern-panel" id="pattern-panel">
+      <!-- JS -->
+    </section>
+
+    <!-- Revenue by Bank Rail -->
+    <section class="bank-grid" id="bank-grid">
+      <!-- JS -->
+    </section>
+
+
+    <div class="two-column">
+      <!-- Left: Latest Transactions + Search -->
+      <section class="panel transactions-panel">
+        <div class="panel-header">
+          <h2>Latest Transactions</h2>
+          <div class="filter-bar">
+            <input type="text" id="search-input" placeholder="Search by ID, APV, customer, merchant...">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Customer</th>
+                <th>Merchant</th>
+                <th>Transaction ID</th>
+                <th>APV</th>
+                <th>Amount</th>
+                <th>Bank</th>
+              </tr>
+            </thead>
+            <tbody id="transactions-body">
+              <!-- JS -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Right: Actions + Analytics -->
+      <aside class="right-column">
+        <section class="panel action-panel">
+          <div class="panel-header">
+            <h2>Telegram Listener</h2>
+          </div>
+          <textarea id="telegram-text" placeholder="Paste a Telegram payment notification here..."></textarea>
+          <button id="btn-send-telegram" class="btn btn-secondary btn-full">Process Notification</button>
+        </section>
+
+        <section class="panel action-panel">
+          <div class="panel-header">
+            <h2>Receipt Verification</h2>
+          </div>
+          <input type="text" id="verify-tx-id" placeholder="Transaction ID">
+          <input type="text" id="verify-invoice" placeholder="Invoice Number (optional)">
+          <button id="btn-verify" class="btn btn-primary btn-full">Verify Receipt</button>
+          <div id="verification-result" class="verification-result" style="display: none;">
+            <!-- JS -->
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Top Customers</h2>
+          </div>
+          <ul class="top-list" id="top-customers">
+            <!-- JS -->
+          </ul>
+        </section>
+      </aside>
+    </div>
+
+    <!-- Hourly Chart -->
+    <section class="panel chart-panel">
+      <div class="panel-header">
+        <h2>Revenue by Hour</h2>
+      </div>
+      <div class="chart" id="hourly-chart">
+        <!-- JS -->
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
