@@ -1,6 +1,8 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+from app.core.config import CAMBODIA_TZ_OFFSET_HOURS
 
 
 def parse_telegram_message(text: str) -> Optional[dict]:
@@ -129,7 +131,7 @@ def parse_telegram_message(text: str) -> Optional[dict]:
     apv = apv_match.group(1).strip() if apv_match else ""
 
     # 7. Date / Time
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     transaction_time = now_utc
     dt_match = re.search(
         r"on\s+([A-Za-z]{3}\s+\d{1,2},?\s+\d{1,2}:\d{2}\s*(?:AM|PM))",
@@ -139,9 +141,10 @@ def parse_telegram_message(text: str) -> Optional[dict]:
     if dt_match:
         try:
             dt_str = re.sub(r"\s+", " ", dt_match.group(1).replace(",", "").strip())
-            transaction_time = datetime.strptime(
+            parsed_dt = datetime.strptime(
                 f"{now_utc.year} {dt_str}", "%Y %b %d %I:%M %p"
             )
+            transaction_time = parsed_dt - timedelta(hours=CAMBODIA_TZ_OFFSET_HOURS)
         except ValueError:
             pass
     else:
@@ -154,7 +157,8 @@ def parse_telegram_message(text: str) -> Optional[dict]:
         if dt_full_match:
             try:
                 dt_str = re.sub(r"\s+", " ", dt_full_match.group(1).replace(",", "").strip())
-                transaction_time = datetime.strptime(dt_str, "%b %d %Y %I:%M %p")
+                parsed_dt = datetime.strptime(dt_str, "%b %d %Y %I:%M %p")
+                transaction_time = parsed_dt - timedelta(hours=CAMBODIA_TZ_OFFSET_HOURS)
             except ValueError:
                 pass
 

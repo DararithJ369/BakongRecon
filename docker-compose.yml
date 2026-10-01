@@ -76,6 +76,8 @@ services:
     volumes:
       - ./backend:/app
       - ./frontend:/frontend
+    profiles:
+      - scraper
     stdin_open: true
     tty: true
     command: python -m app.services.telegram_scraper

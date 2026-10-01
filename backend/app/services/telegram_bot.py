@@ -209,13 +209,14 @@ async def verify_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not _is_private_chat(update):
         return
     if not context.args:
-        await update.message.reply_text("Usage: /verify <transaction_id>")
+        await update.message.reply_text("Usage: /verify <transaction_id> [invoice_number]")
         return
 
     transaction_id = context.args[0]
+    invoice_number = context.args[1] if len(context.args) > 1 else ""
     db = SessionLocal()
     try:
-        result = verify_receipt(db, transaction_id, "")
+        result = verify_receipt(db, transaction_id, invoice_number)
         status_emoji = {"verified": "✅", "duplicate_usage": "🔴", "payment_not_found": "🟡"}.get(
             result.status, "⚠️"
         )
@@ -283,7 +284,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def run_telegram_bot() -> None:
     if not TELEGRAM_BOT_TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set. Add it to your .env file.")
+        logger.warning("TELEGRAM_BOT_TOKEN is not configured. Telegram bot service is paused.")
+        logger.warning("Set TELEGRAM_BOT_TOKEN in backend/.env to activate live bot polling.")
+        import time
+        try:
+            while True:
+                time.sleep(3600)
+        except (KeyboardInterrupt, SystemExit):
+            return
 
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 

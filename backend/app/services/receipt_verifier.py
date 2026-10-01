@@ -107,7 +107,7 @@ def verify_receipt(
             image_url=image_url,
             verification_status=status,
             explanation=explanation,
-            verified_at=datetime.now(timezone.utc) if status == "verified" else None,
+            verified_at=datetime.now(timezone.utc).replace(tzinfo=None) if status == "verified" else None,
         )
         db.add(receipt)
         db.commit()
